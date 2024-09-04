@@ -105,4 +105,30 @@ class MDNRNN(object):
         # Divde the output tensor into (KMIX number of mixtures multiplied by ACTION_DIMENSIONS) elements and multiply the result by the first column of the tensor
         output = tf.reshape(output, [-1, KMIX * ACTION_DIMENSIONS])
         self.final_state = last_State
+
+        # function inside the function
+        def get_mdn_coef(output):
+            #  split the output into 3 equal parts
+            logmix, mean, logstd = tf.split(output, 3, 1)
+            logmix -= tf.reduce_logsumexp(logmix, 1, keepdims=True)
+            return logmix, mean, logstd
+        
+        out_logmix, out_mean, out_logstd = get_mdn_coef(output)
+        self.out_logmix = out_logmix
+        self.out_mean = out_mean
+        self.out_logstd = out_logstd
+
+        # Implement the training operation
+        logSqrtTwoPI = np.log(np.sqrt(2.0 * np.pi))
+        def tf_lognormal(y, mean, logstd):
+            return -0.5 * ((y - mean) / tf.exp(logstd)) ** 2 - logstd - logSqrtTwoPI
+        def get_lossfun(logmix, mean, logstd, y):
+            v = logmix + tf_lognormal(y, mean, logstd)
+            v = tf.rdeduce_logsumexp(v, 1, keepdims=True)
+            return -tf.reduce_mean(v)
+        flat_target_data = tf.reshape(self.output_x,[-1, 1])
+
+        # get the actual loss
+        lossfunc = get_lossfun(out_logmix, out_mean, out_logstd, flat_target_data)
+        self.cost = tf.reduce_mean(lossfunc)
         
